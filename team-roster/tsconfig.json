@@ -15,9 +15,7 @@
     "skipLibCheck": true,
     "sourceMap": true,
     "strictNullChecks": true,
-    "target": "ESNext",
-    "types": ["node"],
-    "typeRoots": ["../node_modules/@types", "../node_modules/@dynatrace"]
+    "target": "ESNext"
   },
   "exclude": ["node_modules", "dist", "actions"]
 }
