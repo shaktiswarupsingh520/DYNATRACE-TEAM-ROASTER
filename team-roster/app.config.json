@@ -3,11 +3,17 @@
   "app": {
     "name": "Dynatrace Team Roster",
     "version": "1.1.0",
-    "description": "Shared Dynatrace support team roster with owner-only editing and tenant-wide read access.",
+    "description": "Shared Dynatrace support team roster.",
     "id": "my.axis.dynatrace.team.roster",
     "scopes": [
-      "document:documents:read",
-      "document:documents:write"
+      {
+        "name": "document:documents:read",
+        "comment": "Read the shared team roster document"
+      },
+      {
+        "name": "document:documents:write",
+        "comment": "Create and update the shared team roster document"
+      }
     ]
   },
   "build": {
