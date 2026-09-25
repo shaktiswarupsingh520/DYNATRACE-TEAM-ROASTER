@@ -4,92 +4,350 @@ import {Plus,Search,Pencil,Download,X,Lock,RefreshCw,CalendarDays,Users,Trash2} 
 
 type Code='G'|'E'|'M'|'W'|'L'|'H';
 type Member={id:string;name:string;role:string;location:string;shift:string;email:string;codes:Record<string,Code>};
+
 const shifts:Record<Code,{label:string;time:string}>={
-G:{label:'General',time:'9:30 AM–7:00 PM'},E:{label:'Evening',time:'1:00 PM–10:30 PM'},M:{label:'Morning',time:'8:00 AM–5:30 PM'},W:{label:'Week Off',time:''},L:{label:'Leave',time:''},H:{label:'Holiday',time:''}
+  G:{label:'General',time:'9:30 AM–7:00 PM'},
+  E:{label:'Evening',time:'1:00 PM–10:30 PM'},
+  M:{label:'Morning',time:'8:00 AM–5:30 PM'},
+  W:{label:'Week Off',time:''},
+  L:{label:'Leave',time:''},
+  H:{label:'Holiday',time:''}
 };
+
 const seed:Member[]=[
-{id:'1',name:'Team Member 1',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}},
-{id:'2',name:'Team Member 2',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}},
-{id:'3',name:'Team Member 3',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}}
+  {id:'1',name:'Team Member 1',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}},
+  {id:'2',name:'Team Member 2',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}},
+  {id:'3',name:'Team Member 3',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}}
 ];
-const dates=Array.from({length:30},(_,i)=>{const d=new Date(2026,8,i+1);return{key:`2026-09-${String(i+1).padStart(2,'0')}`,day:d.toLocaleDateString('en-IN',{weekday:'short'}),date:`${String(i+1).padStart(2,'0')}-Sep`}});
+
+const dates=Array.from({length:30},(_,i)=>{
+  const d=new Date(2026,8,i+1);
+  return {
+    key:`2026-09-${String(i+1).padStart(2,'0')}`,
+    day:d.toLocaleDateString('en-IN',{weekday:'short'}),
+    date:`${String(i+1).padStart(2,'0')}-Sep`
+  };
+});
 
 export default function App(){
-const[members,setMembers]=useState<Member[]>(seed),[meta,setMeta]=useState<any>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[query,setQuery]=useState(''),[open,setOpen]=useState(false),[editing,setEditing]=useState<Member|null>(null),[form,setForm]=useState<Member>(seed[0]),[initialized,setInitialized]=useState(false);
-const canEdit=Boolean(meta?.access?.includes('write'));
+  const [members,setMembers]=useState<Member[]>(seed);
+  const [meta,setMeta]=useState<any>(null);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState('');
+  const [query,setQuery]=useState('');
+  const [open,setOpen]=useState(false);
+  const [editing,setEditing]=useState<Member|null>(null);
+  const [form,setForm]=useState<Member>(seed[0]);
+  const [initialized,setInitialized]=useState(false);
 
-const load=async()=>{
-setLoading(true);setError('');
-try{
-const m=await documentsClient.getDocumentMetadata({id:'dynatrace-team-roster'});
-setMeta(m);setInitialized(true);
-const r=await documentsClient.downloadDocumentContent({id:m.id});
-const data=await r.get('json') as {members?:Member[]};
-setMembers(Array.isArray(data?.members)?data.members:seed);
-}catch(e:any){
-if(e?.status===404||e?.response?.status===404){setInitialized(false);setMeta(null)}
-else setError(e instanceof Error?e.message:'Unable to load the shared roster.');
-}finally{setLoading(false)}
-};
-useEffect(()=>{load()},[]);
+  const canEdit=Boolean(meta?.access?.includes('write'));
 
-const init=async()=>{
-setLoading(true);setError('');
-try{
-const content=new Blob([JSON.stringify({members:seed,updatedAt:new Date().toISOString()},null,2)],{type:'application/json'});
-await documentsClient.createDocument({
-body:{
-name:'Dynatrace Team Roster',
-type:'dynatrace-team-roster',
-externalId:'dynatrace-team-roster',
-description:'Axis Bank Dynatrace Support Team roster',
-content
+  const load=async()=>{
+    setLoading(true);
+    setError('');
+    try{
+      const m=await documentsClient.getDocumentMetadata({id:'dynatrace-team-roster'});
+      setMeta(m);
+      setInitialized(true);
+
+      const r=await documentsClient.downloadDocumentContent({id:m.id});
+      const data=await r.get('json') as {members?:Member[]};
+      setMembers(Array.isArray(data?.members)?data.members:seed);
+    }catch(e:any){
+      const status=e?.status ?? e?.response?.status;
+      if(status===404){
+        setInitialized(false);
+        setMeta(null);
+      }else{
+        setError(e instanceof Error?e.message:'Unable to load the shared roster.');
+      }
+    }finally{
+      setLoading(false);
+    }
+  };
+
+  useEffect(()=>{void load()},[]);
+
+  const init=async()=>{
+    setLoading(true);
+    setError('');
+    try{
+      const content=new Blob(
+        [JSON.stringify({members:seed,updatedAt:new Date().toISOString()},null,2)],
+        {type:'application/json'}
+      );
+      const created=await documentsClient.createDocument({
+        body:{
+          name:'Dynatrace Team Roster',
+          type:'dynatrace-team-roster',
+          externalId:'dynatrace-team-roster',
+          description:'Axis Bank Dynatrace Support Team roster',
+          content
+        }
+      });
+
+      // The create response is authoritative for the newly created document.
+      // Reload using the stable external id so access/version metadata is populated.
+      if(!created){
+        throw new Error('Document creation returned no result.');
+      }
+      await load();
+    }catch(e:any){
+      setError(e instanceof Error?e.message:'Initialization failed. Make sure you have document write permission.');
+      setLoading(false);
+    }
+  };
+
+  const writeRoster=async(next:Member[])=>{
+    if(!meta?.id || !meta?.version){
+      throw new Error('The roster document version is unavailable. Refresh and try again.');
+    }
+    await documentsClient.updateDocumentContent({
+      id:meta.id,
+      optimisticLockingVersion:meta.version,
+      body:{
+        content:new Blob(
+          [JSON.stringify({members:next,updatedAt:new Date().toISOString()},null,2)],
+          {type:'application/json'}
+        )
+      }
+    });
+  };
+
+  const save=async()=>{
+    if(!canEdit || !form.name.trim()) return;
+
+    const next=editing
+      ? members.map(m=>m.id===editing.id?form:m)
+      : [...members,{...form,id:crypto.randomUUID()}];
+
+    try{
+      await writeRoster(next);
+      setOpen(false);
+      await load();
+    }catch(e:any){
+      setError(e instanceof Error?e.message:'Save failed. Refresh and try again.');
+    }
+  };
+
+  const remove=async(id:string)=>{
+    if(!canEdit || !confirm('Remove this team member?')) return;
+
+    const next=members.filter(m=>m.id!==id);
+    try{
+      await writeRoster(next);
+      await load();
+    }catch(e:any){
+      setError(e instanceof Error?e.message:'Delete failed. Refresh and try again.');
+    }
+  };
+
+  const filtered=useMemo(
+    ()=>members.filter(m=>Object.values(m).join(' ').toLowerCase().includes(query.toLowerCase())),
+    [members,query]
+  );
+
+  const exportCsv=()=>{
+    const h=['Member','Role','Location','Shift',...dates.map(d=>d.date)];
+    const rows=members.map(m=>[
+      m.name,m.role,m.location,m.shift,...dates.map(d=>m.codes[d.key]||'')
+    ]);
+    const csv=[h,...rows].map(r=>r.map(v=>JSON.stringify(v)).join(',')).join('\n');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+    a.download='dynatrace-team-roster.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const openEdit=(m:Member)=>{
+    if(!canEdit) return;
+    setEditing(m);
+    setForm({...m,codes:{...m.codes}});
+    setOpen(true);
+  };
+
+  const addMember=()=>{
+    setEditing(null);
+    setForm({
+      ...seed[0],
+      id:crypto.randomUUID(),
+      name:'',
+      codes:{}
+    });
+    setOpen(true);
+  };
+
+  return <div className="app">
+    <header>
+      <div>
+        <div className="title">Dynatrace Team Roster</div>
+        <div className="subtitle">Support Team • September 2026</div>
+      </div>
+
+      <div className="header-actions">
+        <span className={canEdit?'mode edit':'mode'}>
+          {canEdit?<><Pencil size={14}/> Owner edit access</>:<><Lock size={14}/> View only</>}
+        </span>
+        <button className="secondary" onClick={exportCsv}>
+          <Download size={15}/> Export
+        </button>
+        {canEdit&&<button onClick={addMember}>
+          <Plus size={16}/> Add Member
+        </button>}
+      </div>
+    </header>
+
+    <main>
+      {error&&<div className="alert">{error}</div>}
+
+      {loading
+        ? <div className="loading"><RefreshCw className="spin"/>Loading shared roster…</div>
+        : !initialized
+          ? <div className="setup">
+              <Users size={32}/>
+              <h2>Shared roster not initialized</h2>
+              <p>Create the tenant-wide roster once. After initialization, everyone in the tenant can view it and the document owner can edit it.</p>
+              <button onClick={init}>Initialize Shared Roster</button>
+            </div>
+          : <>
+              <section className="summary">
+                <div><span>Total members</span><b>{members.length}</b></div>
+                <div><span>General</span><b>{members.filter(m=>m.shift==='General').length}</b></div>
+                <div><span>Morning</span><b>{members.filter(m=>m.shift==='Morning').length}</b></div>
+                <div><span>Evening</span><b>{members.filter(m=>m.shift==='Evening').length}</b></div>
+                <div><span>View access</span><b>Tenant</b></div>
+              </section>
+
+              <section className="toolbar">
+                <div className="search">
+                  <Search size={16}/>
+                  <input
+                    value={query}
+                    onChange={e=>setQuery(e.target.value)}
+                    placeholder="Search team member or role…"
+                  />
+                </div>
+                <button className="secondary" onClick={()=>void load()}>
+                  <RefreshCw size={15}/> Refresh
+                </button>
+              </section>
+
+              <section className="roster-card">
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th className="sticky-name">Team member</th>
+                        {dates.map(d=>
+                          <th key={d.key}>
+                            <b>{d.date}</b>
+                            <small>{d.day}</small>
+                          </th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map(m=>
+                        <tr key={m.id}>
+                          <td className="sticky-name member">
+                            <strong>{m.name}</strong>
+                            <small>{m.role}</small>
+                            <small>{m.location} • {m.shift}</small>
+                            {canEdit&&
+                              <button className="member-edit" title="Edit member" onClick={()=>openEdit(m)}>
+                                <Pencil size={12}/>
+                              </button>
+                            }
+                          </td>
+                          {dates.map(d=>{
+                            const c=m.codes[d.key];
+                            return <td
+                              key={d.key}
+                              className={'code '+(c||'empty-code')}
+                              onClick={()=>openEdit(m)}
+                            >{c||'·'}</td>;
+                          })}
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section className="legend">
+                <h3><CalendarDays size={16}/> Shift legend</h3>
+                {Object.entries(shifts).map(([c,s])=>
+                  <div key={c}>
+                    <span className={'legend-code c-'+c}>{c}</span>
+                    <span>
+                      <b>{s.label}</b>{s.time&&<> <small>({s.time})</small></>}
+                    </span>
+                  </div>
+                )}
+              </section>
+            </>
+      }
+    </main>
+
+    {open&&canEdit&&
+      <div className="overlay">
+        <div className="modal">
+          <div className="modal-head">
+            <div>
+              <h2>{editing?'Edit roster':'Add team member'}</h2>
+              <small>Owner-only editing</small>
+            </div>
+            <button className="icon" onClick={()=>setOpen(false)}><X/></button>
+          </div>
+
+          <div className="form">
+            <label>Name<input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label>
+            <label>Role<input value={form.role} onChange={e=>setForm({...form,role:e.target.value})}/></label>
+            <label>Location<input value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></label>
+            <label>Default shift
+              <select value={form.shift} onChange={e=>setForm({...form,shift:e.target.value})}>
+                <option>General</option>
+                <option>Morning</option>
+                <option>Evening</option>
+              </select>
+            </label>
+            <label>Email<input value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></label>
+
+            <div className="days">
+              <b>Daily roster codes</b>
+              <div className="day-grid">
+                {dates.map(d=>
+                  <label key={d.key}>
+                    <span>{d.date}</span>
+                    <select
+                      value={form.codes[d.key]||''}
+                      onChange={e=>setForm({
+                        ...form,
+                        codes:{...form.codes,[d.key]:e.target.value as Code}
+                      })}
+                    >
+                      <option value="">—</option>
+                      {Object.keys(shifts).map(c=><option key={c}>{c}</option>)}
+                    </select>
+                  </label>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="modal-foot">
+            {editing&&<button
+              className="danger"
+              onClick={()=>void remove(editing.id)}
+            >
+              <Trash2 size={14}/> Remove
+            </button>}
+            <button className="secondary" onClick={()=>setOpen(false)}>Cancel</button>
+            <button onClick={()=>void save()}>{editing?'Save Changes':'Add Member'}</button>
+          </div>
+        </div>
+      </div>
+    }
+  </div>
 }
-});
-await load();
-}catch(e:any){
-setError(e instanceof Error?e.message:'Initialization failed. Make sure you have document write permission.');
-setLoading(false);
-}
-};
-
-const writeRoster=async(next:Member[],snapshotDescription:string)=>{
-if(!meta)return;
-await documentsClient.updateDocumentContent({
-id:meta.id,
-optimisticLockingVersion:meta.version,
-body:{
-content:new Blob([JSON.stringify({members:next,updatedAt:new Date().toISOString()},null,2)],{type:'application/json'})
-}
-});
-};
-
-const save=async()=>{
-if(!canEdit||!form.name.trim())return;
-const next=editing?members.map(m=>m.id===editing.id?form:m):[...members,{...form,id:crypto.randomUUID()}];
-try{
-await writeRoster(next,'Roster update');
-setOpen(false);await load();
-}catch(e:any){setError(e instanceof Error?e.message:'Save failed. Refresh and try again.')}
-};
-
-const remove=async(id:string)=>{
-if(!canEdit||!confirm('Remove this team member?'))return;
-const next=members.filter(m=>m.id!==id);
-try{
-await writeRoster(next,'Roster member removed');
-await load();
-}catch(e:any){setError(e instanceof Error?e.message:'Delete failed. Refresh and try again.')}
-};
-
-const filtered=useMemo(()=>members.filter(m=>Object.values(m).join(' ').toLowerCase().includes(query.toLowerCase())),[members,query]);
-const exportCsv=()=>{const h=['Member','Role','Location','Shift',...dates.map(d=>d.date)];const rows=members.map(m=>[m.name,m.role,m.location,m.shift,...dates.map(d=>m.codes[d.key]||'')]);const csv=[h,...rows].map(r=>r.map(v=>JSON.stringify(v)).join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='dynatrace-team-roster.csv';a.click()};
-const openEdit=(m:Member)=>{if(!canEdit)return;setEditing(m);setForm({...m,codes:{...m.codes}});setOpen(true)};
-
-return <div className="app">
-<header><div><div className="title">Dynatrace Team Roster</div><div className="subtitle">Support Team • September 2026</div></div><div className="header-actions"><span className={canEdit?'mode edit':'mode'}>{canEdit?<><Pencil size={14}/> Owner edit access</>:<><Lock size={14}/> View only</>}</span><button className="secondary" onClick={exportCsv}><Download size={15}/> Export</button>{canEdit&&<button onClick={()=>{setEditing(null);setForm({...seed[0],id:crypto.randomUUID(),name:'',codes:{}});setOpen(true)}}><Plus size={16}/> Add Member</button>}</div></header>
-<main>{error&&<div className="alert">{error}</div>}{loading?<div className="loading"><RefreshCw className="spin"/>Loading shared roster…</div>:!initialized?<div className="setup"><Users size={32}/><h2>Shared roster not initialized</h2><p>Create the tenant-wide roster once. After initialization, everyone in the tenant can view it and the document owner can edit it.</p><button onClick={init}>Initialize Shared Roster</button></div>:<><section className="summary"><div><span>Total members</span><b>{members.length}</b></div><div><span>General</span><b>{members.filter(m=>m.shift==='General').length}</b></div><div><span>Morning</span><b>{members.filter(m=>m.shift==='Morning').length}</b></div><div><span>Evening</span><b>{members.filter(m=>m.shift==='Evening').length}</b></div><div><span>View access</span><b>Tenant</b></div></section>
-<section className="toolbar"><div className="search"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search team member or role…"/></div><button className="secondary" onClick={load}><RefreshCw size={15}/> Refresh</button></section>
-<section className="roster-card"><div className="table-scroll"><table><thead><tr><th className="sticky-name">Team member</th>{dates.map(d=><th key={d.key}><b>{d.date}</b><small>{d.day}</small></th>)}</tr></thead><tbody>{filtered.map(m=><tr key={m.id}><td className="sticky-name member"><strong>{m.name}</strong><small>{m.role}</small><small>{m.location} • {m.shift}</small></td>{dates.map(d=>{const c=m.codes[d.key];return <td key={d.key} className={'code '+(c||'empty-code')} onClick={()=>openEdit(m)}>{c||'·'}</td>)}</tr>)}</tbody></table></div></section>
-<section className="legend"><h3><CalendarDays size={16}/> Shift legend</h3>{Object.entries(shifts).map(([c,s])=><div key={c}><span className={'legend-code c-'+c}>{c}</span><span><b>{s.label}</b>{s.time&&<> <small>({s.time})</small></>}</span></div>)}</section></>}</main>
-{open&&canEdit&&<div className="overlay"><div className="modal"><div className="modal-head"><div><h2>{editing?'Edit roster':'Add team member'}</h2><small>Owner-only editing</small></div><button className="icon" onClick={()=>setOpen(false)}><X/></button></div><div className="form"><label>Name<input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label><label>Role<input value={form.role} onChange={e=>setForm({...form,role:e.target.value})}/></label><label>Location<input value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></label><label>Default shift<select value={form.shift} onChange={e=>setForm({...form,shift:e.target.value})}><option>General</option><option>Morning</option><option>Evening</option></select></label><label>Email<input value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></label><div className="days"><b>Daily roster codes</b><div className="day-grid">{dates.map(d=><label key={d.key}><span>{d.date}</span><select value={form.codes[d.key]||''} onChange={e=>setForm({...form,codes:{...form.codes,[d.key]:e.target.value as Code}})}><option value="">—</option>{Object.keys(shifts).map(c=><option key={c}>{c}</option>)}</select></label>)}</div></div></div><div className="modal-foot"><button className="secondary" onClick={()=>setOpen(false)}>Cancel</button><button onClick={save}>{editing?'Save Changes':'Add Member'}</button></div></div></div>}</div>}
