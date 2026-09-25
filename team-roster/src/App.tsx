@@ -140,22 +140,21 @@ export default function App(){
       }else if(typeof monthCell==='string'){
         const text=monthCell.trim();
         const numeric=Number(text);
-        const iso=text.match(/^(\\d{4})-(\\d{1,2})(?:-\\d{1,2})?/);
-        const monthYear=text.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)[\\s,]+(\\d{4})$/i);
+        const iso=text.match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?/);
+        const monthYear=text.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)[\s,]+(\d{4})$/i);
         if(Number.isFinite(numeric) && numeric>30000 && numeric<60000){
           const parsed=XLSX.SSF.parse_date_code(numeric);
-          if(parsed) importedMonth=\`${parsed.y}-${String(parsed.m).padStart(2,'0')}\`;
+          if(parsed) importedMonth=`${parsed.y}-${String(parsed.m).padStart(2,'0')}`;
         }else if(iso){
-          importedMonth=\`${iso[1]}-${String(Number(iso[2])).padStart(2,'0')}\`;
+          importedMonth=`${iso[1]}-${String(Number(iso[2])).padStart(2,'0')}`;
         }else if(monthYear){
-          const parsed=new Date(\`${monthYear[1]} 1, ${monthYear[2]}\`);
+          const parsed=new Date(`${monthYear[1]} 1, ${monthYear[2]}`);
           setMonth(parsed);
         }else{
           const parsed=new Date(text);
           setMonth(parsed);
         }
-      }
-      if(!/^\\d{4}-(0[1-9]|1[0-2])$/.test(importedMonth)){
+      }      if(!/^\\d{4}-(0[1-9]|1[0-2])$/.test(importedMonth)){
         throw new Error('Could not read the Roster Month from cell B3. Please select a month in the Excel template and save it before importing.');
       }
       const importedDates=getMonthDates(importedMonth);
