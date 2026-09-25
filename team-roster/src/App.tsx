@@ -122,17 +122,38 @@ export default function App(){
       const sheet=workbook.Sheets[sheetName];
       const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true}) as unknown[][];
       const monthCell=rows[2]?.[1];
+      const monthRef=sheet.B3;
       let importedMonth='';
-      if(monthCell instanceof Date && !Number.isNaN(monthCell.getTime())){
-        importedMonth=`${monthCell.getFullYear()}-${String(monthCell.getMonth()+1).padStart(2,'0')}`;
+      const setMonth=(d:Date)=>{
+        if(!Number.isNaN(d.getTime())){
+          importedMonth=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+        }
+      };
+      if(monthCell instanceof Date){
+        setMonth(monthCell);
+      }else if(monthRef?.t==='n' && typeof monthRef.v==='number'){
+        const parsed=XLSX.SSF.parse_date_code(monthRef.v);
+        if(parsed) importedMonth=`${parsed.y}-${String(parsed.m).padStart(2,'0')}`;
       }else if(typeof monthCell==='number'){
-        const d=new Date(Math.round((monthCell-25569)*86400*1000));
-        if(!Number.isNaN(d.getTime())) importedMonth=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
+        const parsed=XLSX.SSF.parse_date_code(monthCell);
+        if(parsed) importedMonth=`${parsed.y}-${String(parsed.m).padStart(2,'0')}`;
       }else if(typeof monthCell==='string'){
-        const parsed=new Date(monthCell);
-        if(!Number.isNaN(parsed.getTime())) importedMonth=`${parsed.getFullYear()}-${String(parsed.getMonth()+1).padStart(2,'0')}`;
+        const text=monthCell.trim();
+        const iso=text.match(/^(\\d{4})-(\\d{1,2})(?:-\\d{1,2})?/);
+        const monthYear=text.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)[\\s,]+(\\d{4})$/i);
+        if(iso){
+          importedMonth=`${iso[1]}-${String(Number(iso[2])).padStart(2,'0')}`;
+        }else if(monthYear){
+          const parsed=new Date(`${monthYear[1]} 1, ${monthYear[2]}`);
+          setMonth(parsed);
+        }else{
+          const parsed=new Date(text);
+          setMonth(parsed);
+        }
       }
-      if(!/^\\d{4}-\\d{2}$/.test(importedMonth)) throw new Error('Could not read the Roster Month from cell B3.');
+      if(!/^\\d{4}-(0[1-9]|1[0-2])$/.test(importedMonth)){
+        throw new Error('Could not read the Roster Month from cell B3. Please select a month in the Excel template and save it before importing.');
+      }
       const importedDates=getMonthDates(importedMonth);
       const header=rows[4]||[];
       if(header[0]!=='Name'||header[1]!=='TPID'||header[2]!=='Mob Num'){
