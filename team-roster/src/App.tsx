@@ -20,14 +20,23 @@ const seed:Member[]=[
   {id:'3',name:'Team Member 3',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}}
 ];
 
-const dates=Array.from({length:30},(_,i)=>{
-  const d=new Date(2026,8,i+1);
-  return {
-    key:`2026-09-${String(i+1).padStart(2,'0')}`,
-    day:d.toLocaleDateString('en-IN',{weekday:'short'}),
-    date:`${String(i+1).padStart(2,'0')}-Sep`
-  };
-});
+const getMonthDates=(month:string)=>{
+  const [year,monthNumber]=month.split('-').map(Number);
+  const count=new Date(year,monthNumber,0).getDate();
+  return Array.from({length:count},(_,i)=>{
+    const d=new Date(year,monthNumber-1,i+1);
+    return {
+      key:`${month}-${String(i+1).padStart(2,'0')}`,
+      day:d.toLocaleDateString('en-IN',{weekday:'short'}),
+      date:`${String(i+1).padStart(2,'0')}-${d.toLocaleDateString('en-IN',{month:'short'})}`
+    };
+  });
+};
+
+const formatMonth=(month:string)=>{
+  const [year,monthNumber]=month.split('-').map(Number);
+  return new Date(year,monthNumber-1,1).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+};
 
 export default function App(){
   const [members,setMembers]=useState<Member[]>(seed);
@@ -39,6 +48,8 @@ export default function App(){
   const [editing,setEditing]=useState<Member|null>(null);
   const [form,setForm]=useState<Member>(seed[0]);
   const [initialized,setInitialized]=useState(false);
+  const [selectedMonth,setSelectedMonth]=useState('2026-09');
+  const dates=useMemo(()=>getMonthDates(selectedMonth),[selectedMonth]);
 
   const canEdit=Boolean(meta?.access?.includes('write'));
 
@@ -182,7 +193,7 @@ export default function App(){
     <header>
       <div>
         <div className="title">Dynatrace Team Roster</div>
-        <div className="subtitle">Support Team • September 2026</div>
+        <div className="subtitle">Support Team • {formatMonth(selectedMonth)}</div>
       </div>
 
       <div className="header-actions">
@@ -220,6 +231,11 @@ export default function App(){
               </section>
 
               <section className="toolbar">
+                <div className="month-picker">
+                  <CalendarDays size={16}/>
+                  <label>Month</label>
+                  <input type="month" value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}/>
+                </div>
                 <div className="search">
                   <Search size={16}/>
                   <input
