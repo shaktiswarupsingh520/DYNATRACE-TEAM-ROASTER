@@ -2,10 +2,13 @@
   "environmentUrl": "https://axis-prod.apps.dynatrace.com/",
   "app": {
     "name": "Dynatrace Team Roster",
-    "version": "1.0.0",
-    "description": "Team roster management app for Dynatrace operations teams.",
+    "version": "1.1.0",
+    "description": "Shared Dynatrace support team roster with owner-only editing and tenant-wide read access.",
     "id": "my.axis.dynatrace.team.roster",
-    "scopes": []
+    "scopes": [
+      "document:documents:read",
+      "document:documents:write"
+    ]
   },
   "build": {
     "sourceRoot": "src"
