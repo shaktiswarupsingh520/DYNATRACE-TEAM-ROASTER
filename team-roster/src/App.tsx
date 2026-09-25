@@ -1,6 +1,6 @@
 import {useEffect,useMemo,useState} from 'react';
 import {documentsClient} from '@dynatrace-sdk/client-document';
-import {Plus,Search,Pencil,Trash2,Users,UserCheck,UserX,Download,X,Lock,RefreshCw,CalendarDays} from 'lucide-react';
+import {Plus,Search,Pencil,Download,X,Lock,RefreshCw,CalendarDays,Users} from 'lucide-react';
 
 type Code='G'|'E'|'M'|'W'|'L'|'H';
 type Member={id:string;name:string;role:string;location:string;shift:string;email:string;codes:Record<string,Code>};
@@ -17,16 +17,79 @@ const dates=Array.from({length:31},(_,i)=>{const d=new Date(2026,8,i+1);return{k
 export default function App(){
 const[members,setMembers]=useState<Member[]>(seed),[meta,setMeta]=useState<any>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[query,setQuery]=useState(''),[open,setOpen]=useState(false),[editing,setEditing]=useState<Member|null>(null),[form,setForm]=useState<Member>(seed[0]),[initialized,setInitialized]=useState(false);
 const canEdit=Boolean(meta?.access?.includes('write'));
-const load=async()=>{setLoading(true);setError('');try{const m=await documentsClient.getDocumentMetadata({id:'dynatrace-team-roster'});setMeta(m);setInitialized(true);const r:any=await documentsClient.downloadDocumentContent({id:'dynatrace-team-roster'});const text=await (r instanceof Blob?r:new Blob([r])).text();const data=JSON.parse(text);setMembers(Array.isArray(data.members)?data.members:seed)}catch(e:any){if(e?.status===404||e?.response?.status===404){setInitialized(false);setMeta(null)}else setError(e?.message||'Unable to load the shared roster.')}finally{setLoading(false)}};
+
+const load=async()=>{
+setLoading(true);setError('');
+try{
+const m=await documentsClient.getDocumentMetadata({id:'dynatrace-team-roster'});
+setMeta(m);setInitialized(true);
+const r:any=await documentsClient.downloadDocumentContent({id:'dynatrace-team-roster'});
+const text=await (r instanceof Blob?r:new Blob([r])).text();
+const data=JSON.parse(text);
+setMembers(Array.isArray(data.members)?data.members:seed);
+}catch(e:any){
+if(e?.status===404||e?.response?.status===404){setInitialized(false);setMeta(null)}
+else setError(e?.message||'Unable to load the shared roster.');
+}finally{setLoading(false)}
+};
 useEffect(()=>{load()},[]);
-const init=async()=>{try{const content=new Blob([JSON.stringify({members:seed,updatedAt:new Date().toISOString()},null,2)],{type:'application/json'});const m=await documentsClient.createDocument({body:{name:'Dynatrace Team Roster',type:'dynatrace-team-roster',externalId:'dynatrace-team-roster',description:'Axis Bank Dynatrace Support Team roster',content}});await documentsClient.updateDocument({id:m.id,optimisticLockingVersion:(m as any).optimisticLockingVersion ?? (m as any).version ?? '',body:{isPrivate:false}});await load()}catch(e:any){setError(e?.message||'Initialization failed. Only the roster owner should initialize the shared roster.')}};
-const save=async()=>{if(!canEdit||!form.name.trim())return;const next=editing?members.map(m=>m.id===editing.id?form:m):[...members,{...form,id:crypto.randomUUID()}];try{await documentsClient.updateDocument({id:meta.id,optimisticLockingVersion:meta.optimisticLockingVersion,createSnapshot:true,body:{content:new Blob([JSON.stringify({members:next,updatedAt:new Date().toISOString()},null,2)],{type:'application/json'}),snapshotDescription:'Roster update'}});setOpen(false);await load()}catch(e:any){setError(e?.message||'Save failed. Refresh and try again.')}};
-const remove=async(id:string)=>{if(!canEdit||!confirm('Remove this team member?'))return;const next=members.filter(m=>m.id!==id);try{await documentsClient.updateDocument({id:meta.id,optimisticLockingVersion:meta.optimisticLockingVersion,createSnapshot:true,body:{content:new Blob([JSON.stringify({members:next,updatedAt:new Date().toISOString()},null,2)],{type:'application/json'}),snapshotDescription:'Roster member removed'}});await load()}catch(e:any){setError(e?.message||'Delete failed. Refresh and try again.')}};
+
+const init=async()=>{
+setLoading(true);setError('');
+try{
+const content=new Blob([JSON.stringify({members:seed,updatedAt:new Date().toISOString()},null,2)],{type:'application/json'});
+await documentsClient.createDocument({
+id:'dynatrace-team-roster',
+body:{
+name:'Dynatrace Team Roster',
+type:'dynatrace-team-roster',
+description:'Axis Bank Dynatrace Support Team roster',
+content,
+isPrivate:false
+}
+});
+await load();
+}catch(e:any){
+setError(e?.message||'Initialization failed. Make sure you have document write permission and are the roster owner.');
+setLoading(false);
+}
+};
+
+const save=async()=>{
+if(!canEdit||!form.name.trim())return;
+const next=editing?members.map(m=>m.id===editing.id?form:m):[...members,{...form,id:crypto.randomUUID()}];
+try{
+await documentsClient.updateDocument({
+id:meta.id,
+optimisticLockingVersion:meta.version,
+createSnapshot:true,
+body:{content:new Blob([JSON.stringify({members:next,updatedAt:new Date().toISOString()},null,2)],{type:'application/json'}),snapshotDescription:'Roster update'}
+});
+setOpen(false);await load();
+}catch(e:any){setError(e?.message||'Save failed. Refresh and try again.')}
+};
+
+const remove=async(id:string)=>{
+if(!canEdit||!confirm('Remove this team member?'))return;
+const next=members.filter(m=>m.id!==id);
+try{
+await documentsClient.updateDocument({
+id:meta.id,
+optimisticLockingVersion:meta.version,
+createSnapshot:true,
+body:{content:new Blob([JSON.stringify({members:next,updatedAt:new Date().toISOString()},null,2)],{type:'application/json'}),snapshotDescription:'Roster member removed'}
+});
+await load();
+}catch(e:any){setError(e?.message||'Delete failed. Refresh and try again.')}
+};
+
 const filtered=useMemo(()=>members.filter(m=>Object.values(m).join(' ').toLowerCase().includes(query.toLowerCase())),[members,query]);
 const exportCsv=()=>{const h=['Member','Role','Location','Shift',...dates.map(d=>d.date)];const rows=members.map(m=>[m.name,m.role,m.location,m.shift,...dates.map(d=>m.codes[d.key]||'')]);const csv=[h,...rows].map(r=>r.map(v=>JSON.stringify(v)).join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='dynatrace-team-roster.csv';a.click()};
 const openEdit=(m:Member)=>{if(!canEdit)return;setEditing(m);setForm({...m,codes:{...m.codes}});setOpen(true)};
-return <div className="app"><header><div><div className="title">Dynatrace Team Roster</div><div className="subtitle">Support Team • September 2026</div></div><div className="header-actions"><span className={canEdit?'mode edit':'mode'}>{canEdit?<><Pencil size={14}/> Owner edit access</>:<><Lock size={14}/> View only</>}</span><button className="secondary" onClick={exportCsv}><Download size={15}/> Export</button>{canEdit&&<button onClick={()=>{setEditing(null);setForm({...seed[0],id:crypto.randomUUID(),name:'',codes:{}});setOpen(true)}}><Plus size={16}/> Add Member</button>}</div></header>
-<main>{error&&<div className="alert">{error}</div>}{loading?<div className="loading"><RefreshCw className="spin"/>Loading shared roster…</div>:!initialized?<div className="setup"><Users size={32}/><h2>Shared roster not initialized</h2><p>Create the tenant-wide roster once from your Dynatrace owner account. After that, everyone in the tenant can view it, while only the document owner can edit it.</p>{canEdit?<button onClick={init}>Initialize Shared Roster</button>:<span>Ask the roster owner to initialize it.</span>}</div>:<><section className="summary"><div><span>Total members</span><b>{members.length}</b></div><div><span>General</span><b>{members.filter(m=>m.shift==='General').length}</b></div><div><span>Morning</span><b>{members.filter(m=>m.shift==='Morning').length}</b></div><div><span>Evening</span><b>{members.filter(m=>m.shift==='Evening').length}</b></div><div><span>View access</span><b>Tenant</b></div></section>
+
+return <div className="app">
+<header><div><div className="title">Dynatrace Team Roster</div><div className="subtitle">Support Team • September 2026</div></div><div className="header-actions"><span className={canEdit?'mode edit':'mode'}>{canEdit?<><Pencil size={14}/> Owner edit access</>:<><Lock size={14}/> View only</>}</span><button className="secondary" onClick={exportCsv}><Download size={15}/> Export</button>{canEdit&&<button onClick={()=>{setEditing(null);setForm({...seed[0],id:crypto.randomUUID(),name:'',codes:{}});setOpen(true)}}><Plus size={16}/> Add Member</button>}</div></header>
+<main>{error&&<div className="alert">{error}</div>}{loading?<div className="loading"><RefreshCw className="spin"/>Loading shared roster…</div>:!initialized?<div className="setup"><Users size={32}/><h2>Shared roster not initialized</h2><p>Create the tenant-wide roster once from your Dynatrace owner account. The first successful initializer becomes the document owner; the roster is then readable by everyone in the tenant.</p><button onClick={init}>Initialize Shared Roster</button></div>:<><section className="summary"><div><span>Total members</span><b>{members.length}</b></div><div><span>General</span><b>{members.filter(m=>m.shift==='General').length}</b></div><div><span>Morning</span><b>{members.filter(m=>m.shift==='Morning').length}</b></div><div><span>Evening</span><b>{members.filter(m=>m.shift==='Evening').length}</b></div><div><span>View access</span><b>Tenant</b></div></section>
 <section className="toolbar"><div className="search"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search team member or role…"/></div><button className="secondary" onClick={load}><RefreshCw size={15}/> Refresh</button></section>
 <section className="roster-card"><div className="table-scroll"><table><thead><tr><th className="sticky-name">Team member</th>{dates.map(d=><th key={d.key}><b>{d.date}</b><small>{d.day}</small></th>)}</tr></thead><tbody>{filtered.map(m=><tr key={m.id}><td className="sticky-name member"><strong>{m.name}</strong><small>{m.role}</small><small>{m.location} • {m.shift}</small></td>{dates.map(d=>{const c=m.codes[d.key];return <td key={d.key} className={'code '+(c||'empty-code')} onClick={()=>openEdit(m)}>{c||'·'}</td>})}</tr>)}</tbody></table></div></section>
 <section className="legend"><h3><CalendarDays size={16}/> Shift legend</h3>{Object.entries(shifts).map(([c,s])=><div key={c}><span className={'legend-code c-'+c}>{c}</span><span><b>{s.label}</b>{s.time&&<> <small>({s.time})</small></>}</span></div>)}</section></>}</main>
