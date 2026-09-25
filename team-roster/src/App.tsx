@@ -264,7 +264,7 @@ export default function App(){
                             const c=m.codes[d.key];
                             return <td
                               key={d.key}
-                              className={'code '+(c||'empty-code')}
+                              className={'code '+(c?`c-${c}`:'empty-code')}
                               onClick={()=>openEdit(m)}
                             >{c||'·'}</td>;
                           })}
