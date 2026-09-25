@@ -1,21 +1,23 @@
 {
+  "compileOnSave": false,
   "compilerOptions": {
-    "target": "ES2022",
-    "useDefineForClassFields": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "allowJs": false,
-    "skipLibCheck": true,
+    "declaration": true,
+    "emitDecoratorMetadata": true,
     "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "strict": true,
-    "forceConsistentCasingInFileNames": true,
+    "experimentalDecorators": true,
+    "importHelpers": false,
+    "jsx": "react",
+    "lib": ["DOM", "DOM.Iterable", "esnext"],
     "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "types": ["vite/client"]
+    "moduleResolution": "bundler",
+    "rootDir": ".",
+    "skipDefaultLibCheck": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "strictNullChecks": true,
+    "target": "ESNext",
+    "types": ["node"],
+    "typeRoots": ["../node_modules/@types", "../node_modules/@dynatrace"]
   },
-  "include": ["src"]
+  "exclude": ["node_modules", "dist", "actions"]
 }
