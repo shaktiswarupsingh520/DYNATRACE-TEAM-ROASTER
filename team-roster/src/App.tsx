@@ -1,9 +1,10 @@
 import {useEffect,useMemo,useState} from 'react';
 import {documentsClient} from '@dynatrace-sdk/client-document';
-import {Plus,Search,Pencil,Download,X,Lock,RefreshCw,CalendarDays,Users,Trash2} from 'lucide-react';
+import {Plus,Search,Pencil,Download,X,Lock,RefreshCw,CalendarDays,Users,Trash2,Upload,FileSpreadsheet} from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 type Code='G'|'E'|'M'|'W'|'L'|'H';
-type Member={id:string;name:string;role:string;location:string;shift:string;email:string;codes:Record<string,Code>};
+type Member={id:string;name:string;tpid:string;mobNum:string;role:string;location:string;shift:string;email:string;codes:Record<string,Code>};
 
 const shifts:Record<Code,{label:string;time:string}>={
   G:{label:'General',time:'9:30 AM–7:00 PM'},
@@ -15,9 +16,9 @@ const shifts:Record<Code,{label:string;time:string}>={
 };
 
 const seed:Member[]=[
-  {id:'1',name:'Team Member 1',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}},
-  {id:'2',name:'Team Member 2',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}},
-  {id:'3',name:'Team Member 3',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}}
+  {id:'1',name:'Team Member 1',tpid:'TPID001',mobNum:'',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}},
+  {id:'2',name:'Team Member 2',tpid:'TPID002',mobNum:'',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}},
+  {id:'3',name:'Team Member 3',tpid:'TPID003',mobNum:'',role:'Dynatrace Engineer',location:'Mumbai',shift:'General',email:'',codes:{}}
 ];
 
 const getMonthDates=(month:string)=>{
@@ -105,6 +106,84 @@ export default function App(){
       await load();
     }catch(e:any){
       setError(e instanceof Error?e.message:'Initialization failed. Make sure you have document write permission.');
+      setLoading(false);
+    }
+  };
+
+  const importExcel=async(file:File)=>{
+    if(!canEdit) return;
+    setLoading(true);
+    setError('');
+    try{
+      const buffer=await file.arrayBuffer();
+      const workbook=XLSX.read(buffer,{type:'array',cellDates:true});
+      const sheetName=workbook.SheetNames.find(n=>n.toLowerCase()==='roster')||workbook.SheetNames[0];
+      if(!sheetName) throw new Error('The Excel file does not contain a Roster sheet.');
+      const sheet=workbook.Sheets[sheetName];
+      const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:true}) as unknown[][];
+      const monthCell=rows[2]?.[1];
+      let importedMonth='';
+      if(monthCell instanceof Date && !Number.isNaN(monthCell.getTime())){
+        importedMonth=`${monthCell.getFullYear()}-${String(monthCell.getMonth()+1).padStart(2,'0')}`;
+      }else if(typeof monthCell==='number'){
+        const d=new Date(Math.round((monthCell-25569)*86400*1000));
+        if(!Number.isNaN(d.getTime())) importedMonth=`${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
+      }else if(typeof monthCell==='string'){
+        const parsed=new Date(monthCell);
+        if(!Number.isNaN(parsed.getTime())) importedMonth=`${parsed.getFullYear()}-${String(parsed.getMonth()+1).padStart(2,'0')}`;
+      }
+      if(!/^\\d{4}-\\d{2}$/.test(importedMonth)) throw new Error('Could not read the Roster Month from cell B3.');
+      const importedDates=getMonthDates(importedMonth);
+      const header=rows[4]||[];
+      if(header[0]!=='Name'||header[1]!=='TPID'||header[2]!=='Mob Num'){
+        throw new Error('Invalid Excel format. The first three columns must be Name, TPID and Mob Num.');
+      }
+      const dataRows=rows.slice(5).filter(row=>String(row?.[0]??'').trim()||String(row?.[1]??'').trim()||String(row?.[2]??'').trim());
+      if(dataRows.length===0) throw new Error('No team-member rows were found in the Excel file.');
+      if(dataRows.length>50) throw new Error('The Excel file contains more than 50 team members.');
+      const existingByKey=new Map(members.map(m=>[
+        String(m.tpid||m.name).trim().toLowerCase(),
+        m
+      ]));
+      const imported:Member[]=dataRows.map((row,index)=>{
+        const name=String(row[0]??'').trim();
+        const tpid=String(row[1]??'').trim();
+        const mobNum=String(row[2]??'').trim();
+        if(!name) throw new Error(`Row ${index+6}: Name is required.`);
+        if(!tpid) throw new Error(`Row ${index+6}: TPID is required for ${name}.`);
+        const key=tpid.toLowerCase();
+        const previous=existingByKey.get(key)||members.find(m=>m.name.trim().toLowerCase()===name.toLowerCase());
+        const codes={...(previous?.codes||{})};
+        let firstShift:Code|undefined;
+        importedDates.forEach((d,dayIndex)=>{
+          const raw=String(row[dayIndex+3]??'').trim().toUpperCase();
+          if(raw && !(['G','E','M','W','L','H'] as string[]).includes(raw)){
+            throw new Error(`Row ${index+6}, ${d.date}: invalid code "${raw}". Use G, E, M, W, L or H.`);
+          }
+          if(raw){
+            codes[d.key]=raw as Code;
+            if(!firstShift && ['G','E','M'].includes(raw)) firstShift=raw as Code;
+          }else{
+            delete codes[d.key];
+          }
+        });
+        return {
+          id:previous?.id||crypto.randomUUID(),
+          name,
+          tpid,
+          mobNum,
+          role:previous?.role||'Dynatrace Engineer',
+          location:previous?.location||'Mumbai',
+          shift:firstShift?shifts[firstShift].label:(previous?.shift||'General'),
+          email:previous?.email||'',
+          codes
+        };
+      });
+      await writeRoster(imported);
+      setSelectedMonth(importedMonth);
+      await load();
+    }catch(e:any){
+      setError(e instanceof Error?e.message:'Excel import failed. Check the template and try again.');
       setLoading(false);
     }
   };
@@ -200,6 +279,19 @@ export default function App(){
         <span className={canEdit?'mode edit':'mode'}>
           {canEdit?<><Pencil size={14}/> Owner edit access</>:<><Lock size={14}/> View only</>}
         </span>
+        {canEdit&&<label className="secondary upload-button">
+          <Upload size={15}/> Import Excel
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            hidden
+            onChange={e=>{
+              const file=e.target.files?.[0];
+              if(file) void importExcel(file);
+              e.currentTarget.value='';
+            }}
+          />
+        </label>}
         <button className="secondary" onClick={exportCsv}>
           <Download size={15}/> Export
         </button>
@@ -269,6 +361,7 @@ export default function App(){
                           <td className="sticky-name member">
                             <strong>{m.name}</strong>
                             <small>{m.role}</small>
+                            <small>{m.tpid} • {m.mobNum||'No mobile'}</small>
                             <small>{m.location} • {m.shift}</small>
                             {canEdit&&
                               <button className="member-edit" title="Edit member" onClick={()=>openEdit(m)}>
@@ -319,6 +412,8 @@ export default function App(){
 
           <div className="form">
             <label>Name<input value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label>
+            <label>TPID<input value={form.tpid} onChange={e=>setForm({...form,tpid:e.target.value})}/></label>
+            <label>Mob Num<input value={form.mobNum} onChange={e=>setForm({...form,mobNum:e.target.value})}/></label>
             <label>Role<input value={form.role} onChange={e=>setForm({...form,role:e.target.value})}/></label>
             <label>Location<input value={form.location} onChange={e=>setForm({...form,location:e.target.value})}/></label>
             <label>Default shift
