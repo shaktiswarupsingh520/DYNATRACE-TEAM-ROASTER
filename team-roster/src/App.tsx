@@ -39,10 +39,10 @@ setLoading(true);setError('');
 try{
 const content=new Blob([JSON.stringify({members:seed,updatedAt:new Date().toISOString()},null,2)],{type:'application/json'});
 await documentsClient.createDocument({
-id:'dynatrace-team-roster',
 body:{
 name:'Dynatrace Team Roster',
 type:'dynatrace-team-roster',
+externalId:'dynatrace-team-roster',
 description:'Axis Bank Dynatrace Support Team roster',
 content,
 isPrivate:false
@@ -50,7 +50,7 @@ isPrivate:false
 });
 await load();
 }catch(e:any){
-setError(e?.message||'Initialization failed. Make sure you have document write permission and are the roster owner.');
+setError(e?.message||'Initialization failed. Make sure you have document write permission.');
 setLoading(false);
 }
 };
@@ -89,7 +89,7 @@ const openEdit=(m:Member)=>{if(!canEdit)return;setEditing(m);setForm({...m,codes
 
 return <div className="app">
 <header><div><div className="title">Dynatrace Team Roster</div><div className="subtitle">Support Team • September 2026</div></div><div className="header-actions"><span className={canEdit?'mode edit':'mode'}>{canEdit?<><Pencil size={14}/> Owner edit access</>:<><Lock size={14}/> View only</>}</span><button className="secondary" onClick={exportCsv}><Download size={15}/> Export</button>{canEdit&&<button onClick={()=>{setEditing(null);setForm({...seed[0],id:crypto.randomUUID(),name:'',codes:{}});setOpen(true)}}><Plus size={16}/> Add Member</button>}</div></header>
-<main>{error&&<div className="alert">{error}</div>}{loading?<div className="loading"><RefreshCw className="spin"/>Loading shared roster…</div>:!initialized?<div className="setup"><Users size={32}/><h2>Shared roster not initialized</h2><p>Create the tenant-wide roster once from your Dynatrace owner account. The first successful initializer becomes the document owner; the roster is then readable by everyone in the tenant.</p><button onClick={init}>Initialize Shared Roster</button></div>:<><section className="summary"><div><span>Total members</span><b>{members.length}</b></div><div><span>General</span><b>{members.filter(m=>m.shift==='General').length}</b></div><div><span>Morning</span><b>{members.filter(m=>m.shift==='Morning').length}</b></div><div><span>Evening</span><b>{members.filter(m=>m.shift==='Evening').length}</b></div><div><span>View access</span><b>Tenant</b></div></section>
+<main>{error&&<div className="alert">{error}</div>}{loading?<div className="loading"><RefreshCw className="spin"/>Loading shared roster…</div>:!initialized?<div className="setup"><Users size={32}/><h2>Shared roster not initialized</h2><p>Create the tenant-wide roster once. After initialization, everyone in the tenant can view it and the document owner can edit it.</p><button onClick={init}>Initialize Shared Roster</button></div>:<><section className="summary"><div><span>Total members</span><b>{members.length}</b></div><div><span>General</span><b>{members.filter(m=>m.shift==='General').length}</b></div><div><span>Morning</span><b>{members.filter(m=>m.shift==='Morning').length}</b></div><div><span>Evening</span><b>{members.filter(m=>m.shift==='Evening').length}</b></div><div><span>View access</span><b>Tenant</b></div></section>
 <section className="toolbar"><div className="search"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search team member or role…"/></div><button className="secondary" onClick={load}><RefreshCw size={15}/> Refresh</button></section>
 <section className="roster-card"><div className="table-scroll"><table><thead><tr><th className="sticky-name">Team member</th>{dates.map(d=><th key={d.key}><b>{d.date}</b><small>{d.day}</small></th>)}</tr></thead><tbody>{filtered.map(m=><tr key={m.id}><td className="sticky-name member"><strong>{m.name}</strong><small>{m.role}</small><small>{m.location} • {m.shift}</small></td>{dates.map(d=>{const c=m.codes[d.key];return <td key={d.key} className={'code '+(c||'empty-code')} onClick={()=>openEdit(m)}>{c||'·'}</td>})}</tr>)}</tbody></table></div></section>
 <section className="legend"><h3><CalendarDays size={16}/> Shift legend</h3>{Object.entries(shifts).map(([c,s])=><div key={c}><span className={'legend-code c-'+c}>{c}</span><span><b>{s.label}</b>{s.time&&<> <small>({s.time})</small></>}</span></div>)}</section></>}</main>
