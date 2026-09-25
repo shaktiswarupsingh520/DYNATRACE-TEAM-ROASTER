@@ -1,0 +1,16 @@
+{
+  "environmentUrl": "https://axis-prod.apps.dynatrace.com/",
+  "app": {
+    "name": "Dynatrace Team Roster",
+    "version": "1.0.0",
+    "description": "Team roster management app for Dynatrace operations teams.",
+    "id": "my.axis.dynatrace.team.roster",
+    "scopes": []
+  },
+  "build": {
+    "sourceRoot": "src"
+  },
+  "server": {
+    "port": 3004
+  }
+}
