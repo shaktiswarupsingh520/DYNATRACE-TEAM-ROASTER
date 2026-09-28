@@ -65,7 +65,7 @@ export default function App(){
       const r=await documentsClient.downloadDocumentContent({id:m.id});
       const data=await r.get('json') as {members?:Member[];rosterMonth?:string};
       setMembers(Array.isArray(data?.members)?data.members:seed);
-      if(data?.rosterMonth && /^\\d{4}-(0[1-9]|1[0-2])$/.test(data.rosterMonth)) setSelectedMonth(data.rosterMonth);
+      if(data?.rosterMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(data.rosterMonth)) setSelectedMonth(data.rosterMonth);
     }catch(e:any){
       const status=e?.status ?? e?.response?.status;
       if(status===404){
