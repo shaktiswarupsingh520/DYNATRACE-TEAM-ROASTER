@@ -214,8 +214,7 @@ export default function App(){
           codes
         };
       });
-      const updatedMeta=await writeRoster(imported,importedMonth);
-      if(updatedMeta) setMeta(updatedMeta);
+      await writeRoster(imported,importedMonth);
       // Update the UI directly from the imported workbook. Do not immediately
       // reload the document because the document service can briefly return
       // the previous snapshot after a successful content update.
