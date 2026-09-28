@@ -227,9 +227,14 @@ export default function App(){
           codes
         };
       });
-      await writeRoster(imported,importedMonth);
+      const updatedMeta=await writeRoster(imported,importedMonth);
+      if(updatedMeta) setMeta(updatedMeta);
+      // Update the UI directly from the imported workbook. Do not immediately
+      // reload the document because the document service can briefly return
+      // the previous snapshot after a successful content update.
+      setMembers(imported);
       setSelectedMonth(importedMonth);
-      await load();
+      setLoading(false);
     }catch(e:any){
       setError(e instanceof Error?e.message:'Excel import failed. Check the template and try again.');
       setLoading(false);
@@ -240,7 +245,7 @@ export default function App(){
     if(!meta?.id || !meta?.version){
       throw new Error('The roster document version is unavailable. Refresh and try again.');
     }
-    await documentsClient.updateDocumentContent({
+    return await documentsClient.updateDocumentContent({
       id:meta.id,
       optimisticLockingVersion:meta.version,
       body:{
