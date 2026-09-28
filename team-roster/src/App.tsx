@@ -63,8 +63,9 @@ export default function App(){
       setInitialized(true);
 
       const r=await documentsClient.downloadDocumentContent({id:m.id});
-      const data=await r.get('json') as {members?:Member[]};
+      const data=await r.get('json') as {members?:Member[];rosterMonth?:string};
       setMembers(Array.isArray(data?.members)?data.members:seed);
+      if(data?.rosterMonth && /^\\d{4}-(0[1-9]|1[0-2])$/.test(data.rosterMonth)) setSelectedMonth(data.rosterMonth);
     }catch(e:any){
       const status=e?.status ?? e?.response?.status;
       if(status===404){
@@ -85,7 +86,7 @@ export default function App(){
     setError('');
     try{
       const content=new Blob(
-        [JSON.stringify({members:seed,updatedAt:new Date().toISOString()},null,2)],
+        [JSON.stringify({members:seed,rosterMonth:selectedMonth,updatedAt:new Date().toISOString()},null,2)],
         {type:'application/json'}
       );
       const created=await documentsClient.createDocument({
@@ -174,6 +175,9 @@ export default function App(){
           // Keep the validation error below if the workbook has an unreadable month cell.
         }
       }
+      if(!importedMonth && monthRef?.w){
+        parseMonthValue(monthRef.w);
+      }
       if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(importedMonth)){
         throw new Error('Could not read the Roster Month from Excel cell B3. Please use the latest roster template and save it before importing.');
       }
@@ -223,7 +227,7 @@ export default function App(){
           codes
         };
       });
-      await writeRoster(imported);
+      await writeRoster(imported,importedMonth);
       setSelectedMonth(importedMonth);
       await load();
     }catch(e:any){
@@ -232,7 +236,7 @@ export default function App(){
     }
   };
 
-  const writeRoster=async(next:Member[])=>{
+  const writeRoster=async(next:Member[],rosterMonth=selectedMonth)=>{
     if(!meta?.id || !meta?.version){
       throw new Error('The roster document version is unavailable. Refresh and try again.');
     }
@@ -241,7 +245,7 @@ export default function App(){
       optimisticLockingVersion:meta.version,
       body:{
         content:new Blob(
-          [JSON.stringify({members:next,updatedAt:new Date().toISOString()},null,2)],
+          [JSON.stringify({members:next,rosterMonth,updatedAt:new Date().toISOString()},null,2)],
           {type:'application/json'}
         )
       }
