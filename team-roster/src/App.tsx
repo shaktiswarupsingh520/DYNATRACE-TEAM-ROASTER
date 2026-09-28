@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {documentsClient} from '@dynatrace-sdk/client-document';
 import {Plus,Search,Pencil,Download,X,Lock,RefreshCw,CalendarDays,Users,Trash2,Upload,FileSpreadsheet} from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -50,20 +50,22 @@ export default function App(){
   const [form,setForm]=useState<Member>(seed[0]);
   const [initialized,setInitialized]=useState(false);
   const [selectedMonth,setSelectedMonth]=useState('2026-09');
+  const loadRequest=useRef(0);
   const dates=useMemo(()=>getMonthDates(selectedMonth),[selectedMonth]);
 
   const canEdit=Boolean(meta?.access?.includes('write'));
 
   const load=async()=>{
+    const request=++loadRequest.current;
     setLoading(true);
     setError('');
     try{
       const m=await documentsClient.getDocumentMetadata({id:'dynatrace-team-roster'});
-      setMeta(m);
-      setInitialized(true);
-
       const r=await documentsClient.downloadDocumentContent({id:m.id});
       const data=await r.get('json') as {members?:Member[];rosterMonth?:string};
+      if(request!==loadRequest.current) return;
+      setMeta(m);
+      setInitialized(true);
       setMembers(Array.isArray(data?.members)?data.members:seed);
       if(data?.rosterMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(data.rosterMonth)) setSelectedMonth(data.rosterMonth);
     }catch(e:any){
@@ -117,7 +119,7 @@ export default function App(){
     setError('');
     try{
       const buffer=await file.arrayBuffer();
-      const workbook=XLSX.read(buffer,{type:'array',cellDates:true});
+      const workbook=XLSX.read(buffer,{type:'array',cellDates:false,cellNF:true,cellText:true});
       const sheetName=workbook.SheetNames.find(n=>n.toLowerCase()==='roster')||workbook.SheetNames[0];
       if(!sheetName) throw new Error('The Excel file does not contain a Roster sheet.');
       const sheet=workbook.Sheets[sheetName];
@@ -127,14 +129,10 @@ export default function App(){
       let importedMonth='';
       const setMonth=(year:number,month:number)=>{
         if(year>=2000 && year<=2100 && month>=1 && month<=12){
-          importedMonth=`${year}-${String(month).padStart(2,'0')}`;
+          importedMonth=year+'-'+String(month).padStart(2,'0');
         }
       };
       const parseMonthValue=(value:unknown)=>{
-        if(value instanceof Date && !Number.isNaN(value.getTime())){
-          setMonth(value.getFullYear(),value.getMonth()+1);
-          return;
-        }
         if(typeof value==='number' && Number.isFinite(value)){
           const parsed=XLSX.SSF.parse_date_code(value);
           if(parsed) setMonth(parsed.y,parsed.m);
@@ -155,28 +153,17 @@ export default function App(){
           }
           const monthYear=text.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)[\s,]+(\d{4})$/i);
           if(monthYear){
-            const parsed=new Date(`${monthYear[1]} 1, ${monthYear[2]}`);
+            const parsed=new Date(monthYear[1]+' 1, '+monthYear[2]);
             if(!Number.isNaN(parsed.getTime())) setMonth(parsed.getFullYear(),parsed.getMonth()+1);
           }
         }
       };
-      // Read the actual B3 cell first; this handles Excel date, numeric serial, and text formats.
-      if(monthRef?.t==='d' && monthRef.v instanceof Date){
-        parseMonthValue(monthRef.v);
-      }else if(monthRef?.v!==undefined){
-        parseMonthValue(monthRef.v);
-      }
+      if(monthRef?.v!==undefined) parseMonthValue(monthRef.v);
+      if(!importedMonth && monthRef?.w) parseMonthValue(monthRef.w);
       if(!importedMonth) parseMonthValue(monthCell);
-      // Final fallback: format B3 using its own Excel number format.
-      if(!importedMonth && monthRef?.v!==undefined){
-        try{
-          parseMonthValue(XLSX.SSF.format(monthRef.z||'mmmm yyyy',monthRef.v));
-        }catch{
-          // Keep the validation error below if the workbook has an unreadable month cell.
-        }
-      }
-      if(!importedMonth && monthRef?.w){
-        parseMonthValue(monthRef.w);
+      if(!importedMonth){
+        const displayRows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:'',raw:false}) as unknown[][];
+        parseMonthValue(displayRows[2]?.[1]);
       }
       if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(importedMonth)){
         throw new Error('Could not read the Roster Month from Excel cell B3. Please use the latest roster template and save it before importing.');
