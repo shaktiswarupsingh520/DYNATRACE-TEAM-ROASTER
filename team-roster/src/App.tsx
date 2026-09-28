@@ -124,38 +124,58 @@ export default function App(){
       const monthCell=rows[2]?.[1];
       const monthRef=sheet.B3;
       let importedMonth='';
-      const setMonth=(d:Date)=>{
-        if(!Number.isNaN(d.getTime())){
-          importedMonth=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const setMonth=(year:number,month:number)=>{
+        if(year>=2000 && year<=2100 && month>=1 && month<=12){
+          importedMonth=`${year}-${String(month).padStart(2,'0')}`;
         }
       };
-      if(monthCell instanceof Date){
-        setMonth(monthCell);
-      }else if(monthRef?.t==='n' && typeof monthRef.v==='number'){
-        const parsed=XLSX.SSF.parse_date_code(monthRef.v);
-        if(parsed) importedMonth=`${parsed.y}-${String(parsed.m).padStart(2,'0')}`;
-      }else if(typeof monthCell==='number'){
-        const parsed=XLSX.SSF.parse_date_code(monthCell);
-        if(parsed) importedMonth=`${parsed.y}-${String(parsed.m).padStart(2,'0')}`;
-      }else if(typeof monthCell==='string'){
-        const text=monthCell.trim();
-        const numeric=Number(text);
-        const iso=text.match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?/);
-        const monthYear=text.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)[\s,]+(\d{4})$/i);
-        if(Number.isFinite(numeric) && numeric>30000 && numeric<60000){
-          const parsed=XLSX.SSF.parse_date_code(numeric);
-          if(parsed) importedMonth=`${parsed.y}-${String(parsed.m).padStart(2,'0')}`;
-        }else if(iso){
-          importedMonth=`${iso[1]}-${String(Number(iso[2])).padStart(2,'0')}`;
-        }else if(monthYear){
-          const parsed=new Date(`${monthYear[1]} 1, ${monthYear[2]}`);
-          setMonth(parsed);
-        }else{
-          const parsed=new Date(text);
-          setMonth(parsed);
+      const parseMonthValue=(value:unknown)=>{
+        if(value instanceof Date && !Number.isNaN(value.getTime())){
+          setMonth(value.getFullYear(),value.getMonth()+1);
+          return;
         }
-      }      if(!/^\\d{4}-(0[1-9]|1[0-2])$/.test(importedMonth)){
-        throw new Error('Could not read the Roster Month from cell B3. Please select a month in the Excel template and save it before importing.');
+        if(typeof value==='number' && Number.isFinite(value)){
+          const parsed=XLSX.SSF.parse_date_code(value);
+          if(parsed) setMonth(parsed.y,parsed.m);
+          return;
+        }
+        if(typeof value==='string'){
+          const text=value.trim();
+          const numeric=Number(text);
+          if(Number.isFinite(numeric) && numeric>30000 && numeric<60000){
+            const parsed=XLSX.SSF.parse_date_code(numeric);
+            if(parsed) setMonth(parsed.y,parsed.m);
+            return;
+          }
+          const iso=text.match(/^(\d{4})-(\d{1,2})/);
+          if(iso){
+            setMonth(Number(iso[1]),Number(iso[2]));
+            return;
+          }
+          const monthYear=text.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)[\s,]+(\d{4})$/i);
+          if(monthYear){
+            const parsed=new Date(`${monthYear[1]} 1, ${monthYear[2]}`);
+            if(!Number.isNaN(parsed.getTime())) setMonth(parsed.getFullYear(),parsed.getMonth()+1);
+          }
+        }
+      };
+      // Read the actual B3 cell first; this handles Excel date, numeric serial, and text formats.
+      if(monthRef?.t==='d' && monthRef.v instanceof Date){
+        parseMonthValue(monthRef.v);
+      }else if(monthRef?.v!==undefined){
+        parseMonthValue(monthRef.v);
+      }
+      if(!importedMonth) parseMonthValue(monthCell);
+      // Final fallback: format B3 using its own Excel number format.
+      if(!importedMonth && monthRef?.v!==undefined){
+        try{
+          parseMonthValue(XLSX.SSF.format(monthRef.z||'mmmm yyyy',monthRef.v));
+        }catch{
+          // Keep the validation error below if the workbook has an unreadable month cell.
+        }
+      }
+      if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(importedMonth)){
+        throw new Error('Could not read the Roster Month from Excel cell B3. Please use the latest roster template and save it before importing.');
       }
       const importedDates=getMonthDates(importedMonth);
       const header=rows[4]||[];
