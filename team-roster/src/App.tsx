@@ -215,9 +215,11 @@ export default function App(){
         };
       });
       await writeRoster(imported,importedMonth);
-      // Update the UI directly from the imported workbook. Do not immediately
-      // reload the document because the document service can briefly return
-      // the previous snapshot after a successful content update.
+      // Refresh only the document metadata after import so the next edit/delete
+      // uses the new optimistic-locking version. Do not reload the content here,
+      // because the document service can briefly return the previous snapshot.
+      const freshMeta=await documentsClient.getDocumentMetadata({id:meta.id});
+      setMeta(freshMeta);
       setMembers(imported);
       setSelectedMonth(importedMonth);
       setLoading(false);
