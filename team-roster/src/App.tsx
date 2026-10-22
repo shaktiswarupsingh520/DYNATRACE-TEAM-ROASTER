@@ -1,6 +1,6 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {documentsClient} from '@dynatrace-sdk/client-document';
-import {Plus,Search,Pencil,Download,X,Lock,RefreshCw,CalendarDays,Users,Trash2,Upload,FileSpreadsheet} from 'lucide-react';
+import {documentsClient,directSharesClient} from '@dynatrace-sdk/client-document';
+import {Plus,Search,Pencil,Download,X,Lock,RefreshCw,CalendarDays,Users,Trash2,Upload,FileSpreadsheet,Share2} from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 type Code='G'|'E'|'M'|'W'|'L'|'H';
@@ -50,6 +50,10 @@ export default function App(){
   const [form,setForm]=useState<Member>(seed[0]);
   const [initialized,setInitialized]=useState(false);
   const [selectedMonth,setSelectedMonth]=useState('2026-09');
+  const [shareOpen,setShareOpen]=useState(false);
+  const [shareUserId,setShareUserId]=useState('TP000004463@axisbank.com');
+  const [sharing,setSharing]=useState(false);
+  const [shareMessage,setShareMessage]=useState('');
   const loadRequest=useRef(0);
   const dates=useMemo(()=>getMonthDates(selectedMonth),[selectedMonth]);
 
@@ -229,6 +233,60 @@ export default function App(){
     }
   };
 
+  const shareRoster=async()=>{
+    const recipientId=shareUserId.trim();
+    if(!meta?.id){
+      setShareMessage('The roster document ID is not available. Refresh the app and try again.');
+      return;
+    }
+    if(!recipientId){
+      setShareMessage('Enter the recipient SSO user ID.');
+      return;
+    }
+    setSharing(true);
+    setShareMessage('');
+    try{
+      try{
+        await directSharesClient.createDirectShare({
+          body:{
+            documentId:meta.id,
+            access:'read-write',
+            recipients:[{id:recipientId,type:'user'}]
+          }
+        });
+      }catch(createError:any){
+        const reason=String(createError?.message||createError);
+        if(!/already.?exists|ShareAlreadyExists|409/i.test(reason)){
+          throw createError;
+        }
+        const result=await directSharesClient.listDirectShares({
+          filter:`documentId = "${meta.id}"`,
+          pageSize:100
+        });
+        const shares=(result as any)['direct-shares']||[];
+        const writeShare=shares.find((share:any)=>share.documentId===meta.id &&
+          (Array.isArray(share.access)?share.access.some((a:string)=>/write|edit/i.test(a)):String(share.access).includes('write')));
+        if(!writeShare){
+          throw new Error('A share already exists, but the app could not locate its write-share. Check document:direct-shares:read permission.');
+        }
+        await directSharesClient.addDirectShareRecipients({
+          id:writeShare.id,
+          body:{recipients:[{id:recipientId,type:'user'}]}
+        });
+      }
+      setShareMessage('Edit access granted to '+recipientId+'. Ask them to reopen the Team Roster app.');
+    }catch(e:any){
+      const reason=String(e?.message||e);
+      if(/403|Forbidden|permission|scope/i.test(reason)){
+        setShareMessage('Dynatrace denied the share request. Ensure this app has document:direct-shares:write and document:direct-shares:read permissions, then approve/redeploy the app.');
+      }else{
+        setShareMessage('Could not grant access: '+reason);
+      }
+    }finally{
+      setSharing(false);
+    }
+  };
+
   const writeRoster=async(next:Member[],rosterMonth=selectedMonth)=>{
     if(!meta?.id || !meta?.version){
       throw new Error('The roster document version is unavailable. Refresh and try again.');
@@ -320,6 +378,7 @@ export default function App(){
         <span className={canEdit?'mode edit':'mode'}>
           {canEdit?<><Pencil size={14}/> Owner edit access</>:<><Lock size={14}/> View only</>}
         </span>
+        {canEdit&&<button className="secondary" onClick={()=>{setShareMessage('');setShareOpen(true)}}><Share2 size={15}/> Share Access</button>}
         {canEdit&&<label className="secondary upload-button">
           <Upload size={15}/> Import Excel
           <input
@@ -439,6 +498,31 @@ export default function App(){
             </>
       }
     </main>
+
+    {shareOpen&&canEdit&&
+      <div className="overlay">
+        <div className="modal">
+          <div className="modal-head">
+            <div>
+              <h2>Share Team Roster</h2>
+              <small>Grant read and write access to one Dynatrace user</small>
+            </div>
+            <button className="icon" onClick={()=>setShareOpen(false)}><X/></button>
+          </div>
+          <div className="form">
+            <label>Recipient SSO user ID
+              <input value={shareUserId} onChange={e=>setShareUserId(e.target.value)} placeholder="Enter Dynatrace SSO ID"/>
+            </label>
+            <small>Dynatrace document sharing requires the user's SSO ID. This may be their email, but Dynatrace does not validate IDs when creating a share. Confirm the exact SSO ID if access does not work.</small>
+            {shareMessage&&<div className="alert">{shareMessage}</div>}
+          </div>
+          <div className="modal-foot">
+            <button className="secondary" onClick={()=>setShareOpen(false)}>Close</button>
+            <button onClick={()=>void shareRoster()} disabled={sharing}>{sharing?'Sharing…':'Grant edit access'}</button>
+          </div>
+        </div>
+      </div>
+    }
 
     {open&&canEdit&&
       <div className="overlay">
